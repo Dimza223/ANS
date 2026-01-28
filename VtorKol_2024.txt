@@ -1,1 +1,226 @@
+#1. (15) Најавете се на машината со која е асоциран вашиот број на индекс. Корисничко име за
+#најава student, лозинка Laboratorija11!
+#Направете нов корисник со име ansXXXXXX, каде XXXXXX е вашиот број на индекс. Направете група
+#ans и додадете го тој корисник во групата. Како hostname на вашата виртуелка наместете ansdatum, каде datum е вашиот датум на раѓање во облик ddmmyyyy.
+
+#Креирање корисник
+useradd ans232117
+passwd ans232117
+
+#Креирање група и додавање корисник
+groupadd ans
+usermod -aG ans ans232117
+
+#Поставување hostname
+hostnamectl set-hostname ans27102004
+hostname
+
+#2. (20) Инсталирајте BIND DNS сервер, и додадете го како прв локален dns сервер на машината.
+#Допуштете да може да се пристапи до него (да се користи како DNS) од било која машина во
+#мрежата 10.10.0.0/16. Креирајте нова master зона согласно името index.io.mk, каде што index е
+#бројот на вашиот индекс. Во зоната додадете ги следните записи:
+#- NS сервери се вашиот сервер и серверот ns.ans.mk, кој има IP адреса 10.10.16.200
+#- A записи за ns1, www и ftp2 кои ќе покажуваат кон вашиот сервер
+#- A запис за dns, кој ќе покажува кон 10.10.16.200
+#- CNAME запис за web, кој ќе покажува кон www.index.io.mk
+#Овозможете forwarding-от на барањата до вашиот DNS server за зони за кои не може да одговори
+#да бидат проследувани до DNS серверите 1.0.0.1 и 1.1.1.1.
+
+#Инсталација
+dnf install bind bind-utils -y
+
+#Конфигурација /etc/named.conf
+nano /etc/named.conf
+
+------------------------------
+
+listen-on port 53 { any; };
+allow-query { 10.10.0.0/16; };
+recursion yes;
+
+forwarders {
+    1.0.0.1;
+    1.1.1.1;
+};
+
+------------------------------
+
+zone "232117.io.mk" IN {
+    type master;
+    file "232117.io.mk.zone";
+};
+
+------------------------------
+
+#Креирање зона датотека
+nano /var/named/232117.io.mk.zone
+
+------------------------------
+
+$TTL 86400
+@   IN  SOA ns1.232117.io.mk. root.232117.io.mk. (
+        2024011501
+        3600
+        1800
+        604800
+        86400
+)
+
+@       IN  NS  ns1.232117.io.mk.
+@       IN  NS  ns.ans.mk.
+
+ns1     IN  A   <IP_НА_ВАШИОТ_СЕРВЕР>
+www     IN  A   <IP_НА_ВАШИОТ_СЕРВЕР>
+ftp2    IN  A   <IP_НА_ВАШИОТ_СЕРВЕР>
+dns     IN  A   10.10.16.200
+web     IN  CNAME www.232117.io.mk.
+
+------------------------------
+
+#Пермисии
+chown root:named /var/named/232117.io.mk.zone
+chmod 640 /var/named/232117.io.mk.zone
+
+#Проверка
+named-checkconf
+named-checkzone 232117.io.mk /var/named/232117.io.mk.zone
+systemctl restart named
+systemctl status named --no-pager
+
+
+#Старт и enable
+systemctl restart named
+systemctl enable --now named
+
+
+#3. (10) Инсталирајте apache веб сервер.
+dnf install httpd -y
+systemctl enable --now httpd
+
+
+#4. (20) Инсталирајте последна стабилна верзија од Moodle во сервер блок со виртуелен хост IP
+#адресата на серверот и порта 8088. Инсталирајте и конфигурирајте ги сите апликации, екстензии и
+#сервери потребни за да проработи сајтот. Верзијата на php треба да биде тековната
+#(стандардната) за вашиот сервер.
+
+#PHP + екстензии
+dnf install php php-cli php-mysqlnd php-xml php-gd php-intl php-mbstring php-soap php-zip -y
+
+#MySQL (MariaDB)
+dnf install mariadb-server -y
+systemctl enable --now mariadb
+mysql_secure_installation
+
+#Креирање база
+mysql -u root -p
+CREATE DATABASE moodle;
+CREATE USER 'moodle'@'localhost' IDENTIFIED BY 'password';
+GRANT ALL PRIVILEGES ON moodle.* TO 'moodle'@'localhost';
+FLUSH PRIVILEGES;
+EXIT;
+
+#Преземање Moodle
+cd /var/www/
+wget https://download.moodle.org/download.php/direct/stable402/moodle-4.2.4.tgz
+tar -xzf moodle-4.2.4.tgz
+ls(Провери за moodle-4.2.4.tgz и moodle/ )
+
+mkdir /var/moodledata
+chown -R apache:apache /var/www/moodle /var/moodledata
+chmod -R 755 /var/moodledata
+
+#VirtualHost (порт 8088)
+nano /etc/httpd/conf.d/moodle.conf
+
+-----------------------------------
+
+Listen 8088
+
+<VirtualHost *:8088>
+    DocumentRoot /var/www/moodle
+    <Directory /var/www/moodle>
+        AllowOverride All
+        Require all granted
+    </Directory>
+</VirtualHost>
+
+-----------------------------------
+
+systemctl restart httpd
+
+#Dozvola za apache da slusa na porta 8088(Ako Restart pravi problem)
+sudo semanage port -a -t http_port_t -p tcp 8088
+-Proverka
+semanage port -l | grep http_port_t
+
+#(25) Инсталирајте последна стабилна верзија од Wordpress во сервер блок со виртуелен хост #index.anms.com.mk (index – е вашиот индекс). Инсталирајте и конфигурирајте ги сите апликации, #екстензии и сервери #потребни за да проработи сајтот.
+
+#Install required packages (Apache, PHP, MariaDB)
+dnf install httpd mariadb-server php php-mysqlnd php-gd php-xml php-mbstring php-json php-curl php-zip -y
+
+
+#Start & enable services
+systemctl enable --now httpd
+systemctl enable --now mariadb
+
+#Secure MariaDB and create WordPress database
+mysql_secure_installation
+mysql -u root -p
+
+#Create database & user
+CREATE DATABASE wordpress;
+CREATE USER 'wpuser'@'localhost' IDENTIFIED BY 'StrongPass123!';
+GRANT ALL PRIVILEGES ON wordpress.* TO 'wpuser'@'localhost';
+FLUSH PRIVILEGES;
+EXIT;
+
+#3️ Download and extract latest stable WordPress
+cd /var/www
+wget https://wordpress.org/latest.tar.gz
+tar -xzf latest.tar.gz
+
+#Set ownership
+chown -R apache:apache /var/www/wordpress
+chmod -R 755 /var/www/wordpress
+
+#Configure Apache VirtualHost
+
+#Create vhost config
+nano /etc/httpd/conf.d/232117.ans.com.mk.conf
+
+---------------------------------------------
+
+<VirtualHost *:80>
+    ServerName 232117.ans.com.mk
+    DocumentRoot /var/www/wordpress
+
+    <Directory /var/www/wordpress>
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+    ErrorLog /var/log/httpd/index_error.log
+    CustomLog /var/log/httpd/index_access.log combined
+</VirtualHost>
+
+-------------------------------------------------
+
+#Test & restart Apache
+apachectl configtest
+systemctl restart httpd
+
+#SELinux fixes (VERY IMPORTANT on Rocky)
+setsebool -P httpd_can_network_connect on
+setsebool -P httpd_can_network_connect_db on
+semanage fcontext -a -t httpd_sys_rw_content_t "/var/www/wordpress(/.*)?"
+restorecon -Rv /var/www/wordpress
+
+#Firewall (if enabled)
+firewall-cmd --permanent --add-service=http
+firewall-cmd --reload
+
+
+
+
+
 
