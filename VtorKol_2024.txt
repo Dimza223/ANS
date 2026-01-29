@@ -426,4 +426,216 @@ dnf install policycoreutils-python-utils -y
 nano:
 dnf install nano -y
 
+=======================================================================================================================================
+DODATNI RESENIJA ZA BIND DNS:
+
+#2. (25) Инсталирајте DNS сервер и сетирајте зона index.com (index – е вашиот индекс). Во зоната
+#треба да го има сетирано nameserver-от name1. Дополнително наместете хостови web и monitor.
+#Сите внесени записи во DNS серверот треба да покажуваат кон вашата динамички добиена
+#адреса. Направете вашиот DNS сервер да биде прв DNS на вашата машина и не ги бришете
+#останатите DNS сервери во IP конфигурацијата на интерфејсот. Направете вашиот DNS сервер да
+#биде slave на DNS сервер со адреса 10.10.16.200 од кој ги превзема зоните anms.com.mk и
+#ans.edu.mk. Проверете дали зоната со записите ќе биде преземена кај вас. 
+
+#ЧЕКОР 1: Инсталација на DNS сервер (BIND)
+dnf install bind bind-utils -y
+
+#Активирање
+systemctl enable --now named
+
+#Проверка
+systemctl status named --no-pager
+
+#ЧЕКОР 2: Основна конфигурација на BIND и додавање на Master zona index.com
+nano /etc/named.conf
+
+-------------------------
+options {
+    listen-on port 53 { any; };
+    allow-query { any; };
+    recursion yes;
+};
+
+zone "232117.com" IN {
+    type master;
+    file "232117.com.zone";
+};
+
+
+-------------------------
+
+#4.2 Креирање зона фајл
+nano /var/named/232117.com.zone
+
+-------------------------------
+$TTL 86400
+@   IN  SOA name1.232117.com. root.232117.com. (
+        2024010101
+        3600
+        1800
+        604800
+        86400
+)
+
+@       IN  NS  name1.232117.com.
+name1   IN  A   <IP_НА_ВАШИОТ_СЕРВЕР>
+web     IN  A   <IP_НА_ВАШИОТ_СЕРВЕР>
+monitor IN  A   <IP_НА_ВАШИОТ_СЕРВЕР>
+
+-------------------------------
+
+#Пермисии и SELinux
+chown root:named /var/named/232117.com.zone
+chmod 640 /var/named/232117.com.zone
+restorecon -v /var/named/232117.com.zone
+
+
+#ЧЕКОР 5: DNS серверот како прв DNS на машината
+nano /etc/resolv.conf
+nameserver 127.0.0.1
+nameserver 8.8.8.8
+nameserver 1.1.1.1
+
+#ЧЕКОР 6: Slave зони од DNS сервер 10.10.16.200
+nano /etc/named.conf
+
+--------------------------------------
+
+zone "anms.com.mk" IN {
+    type slave;
+    masters { 10.10.16.200; };
+    file "slaves/anms.com.mk.zone";
+};
+
+zone "ans.edu.mk" IN {
+    type slave;
+    masters { 10.10.16.200; };
+    file "slaves/ans.edu.mk.zone";
+};
+
+--------------------------------------
+
+#Креирај директориум:
+mkdir -p /var/named/slaves
+chown named:named /var/named/slaves
+
+#ЧЕКОР 8: Проверка дека slave зоните се преземени
+ls /var/named/slaves
+ТРЕБА ДА ВИДИШ:
+anms.com.mk.zone
+ans.edu.mk.zone
+
+
+#ЧЕКОР 9: Тестирање
+dig @127.0.0.1 web.232117.com
+dig @127.0.0.1 anms.com.mk
+dig @127.0.0.1 ans.edu.mk
+
+TREBIT OVIE KOMANDI DA TI VRAKET IP
+
+
+===========================================================================================================================
+#2. (25) Инсталирајте DNS сервер и сетирајте зона index.com (index – е вашиот индекс). Во зоната
+#треба да ги има сетирано nameserver-ите name1 и name2. Дополнително наместете хостови web и
+#monitor и наместете мејл сервер mail за POP и SMTP. Сите внесени записи во DNS серверот треба
+#да покажуваат кон вашата динамички добиена адреса. Направете вашата зона да може да се
+#превземе од било кој slave DNS. Направете вашиот DNS сервер да биде slave на DNS сервер со
+#адреса 10.10.16.200 од кој ја превзема зоната anms.com.mk. 
+
+#ЧЕКОР 1: Инсталација на DNS сервер (BIND)
+dnf install bind bind-utils -y
+
+#Активирање:
+systemctl enable --now named
+
+#Проверка:
+systemctl status named --no-pager
+
+ЧЕКОР 2: Основна конфигурација на BIND
+nano /etc/named.conf
+
+--------------------------------
+
+options {
+    listen-on port 53 { any; };
+    allow-query { any; };
+    recursion yes;
+};
+
+zone "232117.com" IN {
+    type master;
+    file "232117.com.zone";
+    allow-transfer { any; };
+};
+
+--------------------------------
+
+#4.2 Креирање зона фајл
+#nano /var/named/232117.com.zone
+
+---------------------------------------------
+
+$TTL 86400
+@   IN  SOA name1.232117.com. root.232117.com. (
+        2024010101
+        3600
+        1800
+        604800
+        86400
+)
+
+; Nameservers
+@       IN  NS  name1.232117.com.
+@       IN  NS  name2.232117.com.
+
+; A records (dynamic IP)
+name1   IN  A   <IP_НА_ВАШИОТ_СЕРВЕР>
+name2   IN  A   <IP_НА_ВАШИОТ_СЕРВЕР>
+web     IN  A   <IP_НА_ВАШИОТ_СЕРВЕР>
+monitor IN  A   <IP_НА_ВАШИОТ_СЕРВЕР>
+mail    IN  A   <IP_НА_ВАШИОТ_СЕРВЕР>
+
+; Mail server (SMTP / POP)
+@       IN  MX 10 mail.232117.com.
+
+
+---------------------------------------------
+
+#4.3 Пермисии и SELinux
+chown root:named /var/named/232117.com.zone
+chmod 640 /var/named/232117.com.zone
+restorecon -v /var/named/232117.com.zone
+
+#ЧЕКОР 5: Slave зона anms.com.mk
+nano /etc/named.conf
+
+------------------------------
+
+zone "anms.com.mk" IN {
+    type slave;
+    masters { 10.10.16.200; };
+    file "slaves/anms.com.mk.zone";
+};
+
+------------------------------
+
+#Креирај директориум:
+mkdir -p /var/named/slaves
+chown named:named /var/named/slaves
+
+#ЧЕКОР 6: Проверка и рестарт
+named-checkconf
+systemctl restart named
+
+ЧЕКОР 7: Проверка дека slave зоната е преземена
+ls /var/named/slaves
+TREBA DA SODRZI: anms.com.mk.zone
+
+#ЧЕКОР 8: Тестирање
+dig @127.0.0.1 web.232117.com
+dig @127.0.0.1 mail.232117.com
+dig @127.0.0.1 232117.com MX
+dig @127.0.0.1 anms.com.mk
+
+AKO DOBIES ODGOVOR RABOTI!!!
 
