@@ -97,6 +97,14 @@ systemctl enable --now named
 dnf install httpd -y
 systemctl enable --now httpd
 
+#3. (10) Инсталирајте nginx веб сервер.
+dnf install epel-release -y
+dnf install nginx -y
+systemctl enable --now nginx
+systemctl status nginx --no-pager
+firewall-cmd --permanent --add-service=http
+firewall-cmd --reload
+
 
 #4. (20) Инсталирајте последна стабилна верзија од Moodle во сервер блок со виртуелен хост IP
 #адресата на серверот и порта 8088. Инсталирајте и конфигурирајте ги сите апликации, екстензии и
@@ -219,8 +227,203 @@ restorecon -Rv /var/www/wordpress
 firewall-cmd --permanent --add-service=http
 firewall-cmd --reload
 
+#5. (15) Инсталирајте NFS клиент. Креирајте директориуми за маунтирање /nfs/jan2024 и
+#/nfs/proba2024. Маунтирајте ги следните nfs фолдери од nfs серверот на 10.10.16.200:
+#- /mnt/kolokvium_2024 на /nfs/jan2024
+#- /mnt/proba на /nfs/proba2024
+#Додадете ги точките за маунтирање во /etc/fstab, за да може да се пристапат и после
+#рестартирање на машината. Во /nfs/jan2024 креирајте ваш фолдер со име на индекс и внатре
+#креирајте празна датотека со име по ваш избор.
+
+#Инсталација
+dnf install nfs-utils -y
+
+#Креирање Директориуми
+mkdir -p /nfs/jan2024 /nfs/proba2024
+
+#Маунтирање
+mount 10.10.16.200:/mnt/kolokvium_2024 /nfs/jan2024
+mount 10.10.16.200:/mnt/proba /nfs/proba2024
+
+#/etc/fstab
+nano /etc/fstab
+---------------
+10.10.16.200:/mnt/kolokvium_2024 /nfs/jan2024 nfs defaults 0 0
+10.10.16.200:/mnt/proba /nfs/proba2024 nfs defaults 0 0
+---------------
+
+#Креирање фолдер и фајл
+mkdir /nfs/jan2024/232117
+touch /nfs/jan2024/232117/test.txt
+
+#5. (15) Инсталирајте FTP со корисник editor кој ќе има привилегии за читање и запишување на
+#поддиректориумот ftp во фолдерот /home/student. Фолдерот ftp треба да се креира доколку не
+#постои. 
+
+#Инсталација на FTP сервер (vsftpd) и FTP
+dnf install vsftpd -y
+dnf install ftp -y
+
+#Активирање:
+systemctl enable --now vsftpd
+
+#Провери
+systemctl status vsftpd --no-pager
+
+
+#Креирање на директориум /home/student/ftp
+mkdir -p /home/student/ftp
+
+#Креирање корисник editor
+useradd editor
+passwd editor
+
+#Дозволи
+chown editor:editor /home/student/ftp
+
+#Постави пермисии
+chmod 755 /home/student/ftp
+
+#Конфигурација на vsftpd(Dodaj to sho falit)
+nano /etc/vsftpd/vsftpd.conf
+
+-----------------------------
+anonymous_enable=NO
+local_enable=YES
+write_enable=YES
+
+chroot_local_user=YES
+allow_writeable_chroot=YES
+
+local_root=/home/student/ftp
+-----------------------------
+
+#Рестартирање на FTP сервисот
+systemctl restart vsftpd
+
+#Firewall
+firewall-cmd --permanent --add-service=ftp
+firewall-cmd --reload
+
+#Firewall
+ftp localhost
+
+Name: editor
+Password: ****
+----------------
+Пробај
+pwd
+put test.txt
+ls
+----------------
+
+
+#5. (25) Инсталирајте FTP со корисник editor кој ќе има привилегии за читање и запишување на
+#wordpress директориумот.
+
+#Инсталација на FTP сервер (vsftpd) и FTP
+dnf install vsftpd -y
+dnf install ftp -y
+
+#Активирање:
+systemctl enable --now vsftpd
+
+#Провери
+systemctl status vsftpd --no-pager
+
+#Креирање корисник editor
+useradd editor
+passwd editor
+
+#ЧЕКОР 3: Доделување пристап до WordPress директориумот
+ls -ld /var/www/wordpress
+
+#Промена на сопственост (клучно за write пристап)
+chown -R editor:editor /var/www/wordpress
+
+#Пермисии
+chmod -R 755 /var/www/wordpress
+
+#Конфигурација на vsftpd
+nano /etc/vsftpd/vsftpd.conf
+----------------------------
+anonymous_enable=NO
+local_enable=YES
+write_enable=YES
+
+chroot_local_user=YES
+allow_writeable_chroot=YES
+---------------------------
+
+#Дозволи FTP write преку SELinux
+setsebool -P ftpd_full_access on
+
+#Дозволи FTP да пишува во web директориум
+setsebool -P allow_ftpd_full_access on
+
+#Постави SELinux контекст на WordPress
+semanage fcontext -a -t public_content_rw_t "/var/www/wordpress(/.*)?"
+restorecon -Rv /var/www/wordpress
+
+#Firewall
+firewall-cmd --permanent --add-service=ftp
+firewall-cmd --reload
+
+#ЧЕКОР 7: Рестартирање на FTP сервисот
+systemctl restart vsftpd
+
+ЧЕКОР 8: Тестирање (колоквиумски доказ)
+ftp localhost
+
+user: editor
+password: ****
+
+---------------------
+cd /var/www/wordpress
+put test.txt
+ls
+---------------------
+
+#7.Инсталирај и конфигурирај firewalld(SSH,DNS,HTTP/HTTPS,FTP или NFS и портата за инсталираниот
+# Moodle/WordPress сајт),со соодветни протоколи и порти.
+
+systemctl enable --now firewalld
+
+firewall-cmd --permanent --add-service=ssh
+firewall-cmd --permanent --add-service=dns
+firewall-cmd --permanent --add-service=http
+firewall-cmd --permanent --add-service=https
+firewall-cmd --permanent --add-service=ftp
+firewall-cmd --permanent --add-port=8088/tcp
+firewall-cmd --reload
+
+firewall-cmd --list-all
+
+#8.Прикажи ги сите firewalld команди во iptables
+
+iptables -F
+
+iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+iptables -A INPUT -p udp --dport 53 -j ACCEPT
+iptables -A INPUT -p tcp --dport 53 -j ACCEPT
+iptables -A INPUT -p tcp --dport 80 -j ACCEPT
+iptables -A INPUT -p tcp --dport 443 -j ACCEPT
+iptables -A INPUT -p tcp --dport 21 -j ACCEPT
+iptables -A INPUT -p tcp --dport 8088 -j ACCEPT
+
+iptables -P INPUT DROP
+iptables -P FORWARD DROP
+iptables -P OUTPUT ACCEPT
 
 
 
+MISSING(nano,wget,semanage)
+semanage:
+dnf install policycoreutils-python-utils -y
+wget:
+dnf install policycoreutils-python-utils -y
+nano:
+dnf install nano -y
 
 
